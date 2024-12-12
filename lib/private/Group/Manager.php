@@ -85,6 +85,9 @@ class Manager extends PublicEmitter implements IGroupManager {
 	/** @var array<string, list<string>> */
 	private $cachedUserGroups = [];
 
+	/** @var bool */
+	private $cachedUserGroupsDirty = false;
+
 	/** @var \OC\SubAdmin */
 	private $subAdmin = null;
 
@@ -103,6 +106,19 @@ class Manager extends PublicEmitter implements IGroupManager {
 
 		$cachedGroups = &$this->cachedGroups;
 		$cachedUserGroups = &$this->cachedUserGroups;
+		$cachedUserGroupsDirty = &$this->cachedUserGroupsDirty;
+		$this->listen('\OC\Group', 'preAddUser', function ($group) use (&$cachedUserGroupsDirty) {
+			/**
+			 * @var \OC\Group\Group $group
+			 */
+			$cachedUserGroupsDirty = true;
+		});
+		$this->listen('\OC\Group', 'preRemoveUser', function ($group) use (&$cachedUserGroupsDirty) {
+			/**
+			 * @var \OC\Group\Group $group
+			 */
+			$cachedUserGroupsDirty = true;
+		});
 		$this->listen('\OC\Group', 'postDelete', function ($group) use (&$cachedGroups, &$cachedUserGroups) {
 			/**
 			 * @var \OC\Group\Group $group
@@ -110,17 +126,19 @@ class Manager extends PublicEmitter implements IGroupManager {
 			unset($cachedGroups[$group->getGID()]);
 			$cachedUserGroups = [];
 		});
-		$this->listen('\OC\Group', 'postAddUser', function ($group) use (&$cachedUserGroups) {
+		$this->listen('\OC\Group', 'postAddUser', function ($group) use (&$cachedUserGroups, &$cachedUserGroupsDirty) {
 			/**
 			 * @var \OC\Group\Group $group
 			 */
 			$cachedUserGroups = [];
+			$cachedUserGroupsDirty = false;
 		});
-		$this->listen('\OC\Group', 'postRemoveUser', function ($group) use (&$cachedUserGroups) {
+		$this->listen('\OC\Group', 'postRemoveUser', function ($group) use (&$cachedUserGroups, &$cachedUserGroupsDirty) {
 			/**
 			 * @var \OC\Group\Group $group
 			 */
 			$cachedUserGroups = [];
+			$cachedUserGroupsDirty = false;
 		});
 	}
 
@@ -403,7 +421,7 @@ class Manager extends PublicEmitter implements IGroupManager {
 	 * @return string[]
 	 */
 	private function getUserIdGroupIds(string $uid): array {
-		if (!isset($this->cachedUserGroups[$uid])) {
+		if (!isset($this->cachedUserGroups[$uid]) || $this->cachedUserGroupsDirty) {
 			$groups = [];
 			foreach ($this->backends as $backend) {
 				if ($groupIds = $backend->getUserGroups($uid)) {
